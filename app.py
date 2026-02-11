@@ -1,64 +1,76 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 
-# Page config
-st.set_page_config(page_title="NFHS Dashboard", layout="wide")
+st.set_page_config(page_title="NFHS-4 Dashboard", layout="wide")
 
-# Title
-st.title("📊 National Family Health Survey (NFHS) Dashboard")
+st.title("NFHS-4 India Health Dashboard")
 
 # Load data
 @st.cache_data
 def load_data():
-    df = pd.read_excel("/mnt/data/All India National Family Health Survey1.xlsx")
+    file_path = "All India National Family Health Survey4.xlsx"
+    df = pd.read_excel(file_path, sheet_name="in")
+    df = df.dropna(how="all")
+    df.columns = df.columns.str.strip()
     return df
 
 df = load_data()
 
-# Show raw data
-st.subheader("📄 Raw Data Preview")
-st.dataframe(df.head())
+# First column assumed as State/UT
+area_col = df.columns[0]
 
 # Sidebar filters
-st.sidebar.header("🔍 Filters")
+st.sidebar.header("Filters")
 
-# Select column for analysis
-numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-selected_col = st.sidebar.selectbox("Select a numeric indicator", numeric_cols)
+areas = df[area_col].dropna().unique()
+selected_areas = st.sidebar.multiselect(
+    "Select State/UT",
+    areas,
+    default=areas[:5]
+)
 
-# Optional state filter (if present)
-if "State" in df.columns:
-    states = df["State"].unique()
-    selected_state = st.sidebar.multiselect("Select State(s)", states, default=states)
+filtered_df = df[df[area_col].isin(selected_areas)]
 
-    filtered_df = df[df["State"].isin(selected_state)]
-else:
-    filtered_df = df
+# Indicator selection
+numeric_cols = filtered_df.select_dtypes(include="number").columns
+indicator = st.sidebar.selectbox("Select Indicator", numeric_cols)
 
-# KPI section
-st.subheader("📌 Key Statistics")
-col1, col2, col3 = st.columns(3)
+# Chart
+st.subheader(f"{indicator} by State/UT")
 
-col1.metric("Mean", round(filtered_df[selected_col].mean(), 2))
-col2.metric("Maximum", round(filtered_df[selected_col].max(), 2))
-col3.metric("Minimum", round(filtered_df[selected_col].min(), 2))
-
-# Chart section
-st.subheader(f"📈 Distribution of {selected_col}")
+plot_df = filtered_df[[area_col, indicator]].dropna()
 
 fig, ax = plt.subplots()
-sns.histplot(filtered_df[selected_col].dropna(), kde=True, ax=ax)
+ax.bar(plot_df[area_col], plot_df[indicator])
+plt.xticks(rotation=90)
+ax.set_ylabel(indicator)
 st.pyplot(fig)
 
-# Bar chart (State-wise if available)
-if "State" in df.columns:
-    st.subheader(f"🏙️ State-wise {selected_col}")
+# Summary
+col1, col2, col3 = st.columns(3)
 
-    state_avg = filtered_df.groupby("State")[selected_col].mean().sort_values(ascending=False)
+if not plot_df.empty:
+    col1.metric("Average", round(plot_df[indicator].mean(), 2))
+    col2.metric("Max", round(plot_df[indicator].max(), 2))
+    col3.metric("Min", round(plot_df[indicator].min(), 2))
 
-    fig2, ax2 = plt.subplots(figsize=(10, 6))
-    state_avg.plot(kind="bar", ax=ax2)
-    ax2.set_ylabel(selected_col)
-    st.pyplot(fig2)
+# Top/Bottom
+st.subheader("Top & Bottom States")
+
+top_n = st.slider("Select Top/Bottom N", 3, 10, 5)
+rank_df = plot_df.sort_values(by=indicator, ascending=False)
+
+col4, col5 = st.columns(2)
+
+with col4:
+    st.write("Top States")
+    st.dataframe(rank_df.head(top_n))
+
+with col5:
+    st.write("Bottom States")
+    st.dataframe(rank_df.tail(top_n))
+
+# Raw data
+st.subheader("Raw Data")
+st.dataframe(filtered_df)
